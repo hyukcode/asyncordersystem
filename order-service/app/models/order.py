@@ -1,10 +1,17 @@
 from datetime import datetime
 from decimal import Decimal 
 
-from sqlalchemy import DateTime, Integer, Numeric, String
+from sqlalchemy import DateTime, Integer, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base 
+
+from enum import Enum
+
+class OrderStatus(str, Enum):
+    PENDING = "PENDING"
+    PAID = "PAID"
+    CANCELLED = "CANCELLED"
 
 class Order(Base):
     __tablename__ = "orders"
@@ -19,7 +26,6 @@ class Order(Base):
         String(64),
         unique=True,
         nullable=False,
-        index=True,
     )
 
     user_id: Mapped[int] = mapped_column(
@@ -41,5 +47,26 @@ class Order(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+# 标识一次逻辑下单操作，建立唯一约束
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        unique=True,
+    )
+
+# 记录请求参数指纹，防止重复键对应不同请求
+    request_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
     )

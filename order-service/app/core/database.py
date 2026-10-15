@@ -16,12 +16,7 @@ engine = create_async_engine(
     pool_size=10,
     max_overflow=20,
     pool_pre_ping=True,
-)
-
-AsyncSessionFactory = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
+    pool_recycle=1800,
 )
 
 # async_sessionmaker 是 SQLAlchemy 异步 Session 的工厂。
@@ -29,6 +24,13 @@ AsyncSessionFactory = async_sessionmaker(
 # class_ 指定生成 AsyncSession，
 # expire_on_commit=False 用于避免事务提交后 ORM 实例属性被自动失效。
 # 在异步 Web 服务中这样配置比较常见，可以避免提交后访问对象属性时触发隐式数据库 IO。
+
+AsyncSessionFactory = async_sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
 
 # session 更接近一次数据库工作单元，管理 ORM对象、事务状态、SQL执行、flush、commit、rollback
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

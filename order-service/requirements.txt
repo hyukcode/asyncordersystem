@@ -3,3 +3,9 @@ uvicorn[standard]
 sqlalchemy[asyncio]
 asyncmy
 pydantic-settings
+
+pytest
+pytest-asyncio
+httpx
+
+alembic

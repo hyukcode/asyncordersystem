@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.schemas.order import (
     OrderCreate,
     OrderResponse,
+    OrderStatusUpdate,
 )
 from app.services.order_service import OrderService
 
@@ -18,6 +19,7 @@ router = APIRouter(
 @router.post(
     "",
     response_model=OrderResponse,
+    status_code=201,
 )
 async def create_order(
     data: OrderCreate,
@@ -27,14 +29,11 @@ async def create_order(
     ],
 ):
     service = OrderService(session)
-    return await service.create_order(
-        user_id=data.user_id,
-        amount=data.amount,
-    )
+    return await service.create_order(data)
 
 @router.get(
     "/{order_id}",
-    response_model=OrderResponse
+    response_model=OrderResponse,
 )
 async def get_order(
     order_id: int,
@@ -50,4 +49,31 @@ async def get_order(
             status_code=404,
             detail="Order not found",
         )
+    return order
+
+@router.put(
+    "/{order_id}/status",
+    response_model=OrderResponse,
+)
+async def update_order_status(
+    order_id: int,
+    data: OrderStatusUpdate,
+    session: Annotated[
+        AsyncSession,
+        Depends(get_db),
+    ],
+):
+    service = OrderService(session)
+
+    order = await service.update_order_status(
+        order_id=order_id,
+        data=data,
+    )
+
+    if order is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Order not found",
+        )
+    
     return order
