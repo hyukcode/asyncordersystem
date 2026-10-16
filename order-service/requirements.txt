@@ -9,3 +9,4 @@ pytest-asyncio
 httpx
 
 alembic
+aio-pika

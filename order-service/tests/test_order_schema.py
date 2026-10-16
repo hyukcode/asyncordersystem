@@ -2,7 +2,6 @@ from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
-from app.schemas.order import OrderCreate
 from app.schemas.order import OrderCreate, OrderStatusUpdate
 
 def test_order_create_success():

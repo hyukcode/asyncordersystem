@@ -3,11 +3,28 @@ from fastapi import FastAPI
 
 from app.api.orders import router as order_router
 from app.core.redis_client import create_redis
+from app.mq.rabbitmq import rabbitmq_publisher
+
+
+# lifespan 管理应用级资源
+
+# uvicorn start 
+# RabbitMQ connect
+# FastAPI 接收请求 
+# ...
+# uvicorn shutdown
+# RabbitMQ close
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
+    await rabbitmq_publisher.connect()
+    yield
+    await rabbitmq_publisher.close()
+
     redis = create_redis()
     await redis.ping()
+
     app.state.redis = redis
     try:
         yield
@@ -16,6 +33,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Async Order System",
+    version="1.0.0",
     lifespan=lifespan,
 )
 
@@ -29,3 +47,6 @@ async def health():
     return {
         "status": "ok"
     }
+
+
+# RabbitMQ Connection 和 FastAPI Application 生命周期绑定

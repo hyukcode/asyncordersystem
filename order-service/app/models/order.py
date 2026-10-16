@@ -26,6 +26,7 @@ class Order(Base):
         String(64),
         unique=True,
         nullable=False,
+        index=True,
     )
 
     user_id: Mapped[int] = mapped_column(
@@ -43,6 +44,15 @@ class Order(Base):
         String(32),
         nullable=False,
         default="PENDING",
+    )
+
+
+    version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        # 通过mysql直接插入数据
+        server_default="1",
     )
 
     created_at: Mapped[datetime] = mapped_column(

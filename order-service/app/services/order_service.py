@@ -13,9 +13,16 @@ from app.models.order import Order
 from app.core.redis_lock import RedisLock
 from app.repositories.order_repository import OrderRepository
 from app.schemas.order import OrderCreate, OrderStatusUpdate
+from app.core.exceptions import (
+    InvalidOrderStatusTransitionError,
+    OptimisticLockError,
+    OrderNotFoundError,
+)
+from app.mq.rabbitmq import rabbitmq_publisher
 
 from redis.asyncio import Redis
 
+# 状态机规则
 STATUS_TRANSITIONS = {
     "PENDING": {
         "PROCESSING",
@@ -39,15 +46,12 @@ class OrderService:
         self.redis = redis
         self.repository = OrderRepository(session)
 
-    def format_amount(amount: Decimal) -> str:
-        return str(amount.quantize(Decimal("0.01")))
-
     @staticmethod
     def request_hash(data: OrderCreate) -> str:
 
         payload = {
             "user_id": data.user_id,
-            "amount": format_amount(data.amount),
+            "amount": str(data.amount.quantize(Decimal("0.01"))),
         }
 
         content = json.dumps(
@@ -83,78 +87,89 @@ class OrderService:
         idempotency_key: str,
     ) -> Order:
 
-        if self.redis is None:
-            raise RuntimeError("Redis is not configured")
+        # 暂时关闭 Redis 依赖
+        # if self.redis is None:
+        #     raise RuntimeError("Redis is not configured")
         
         fingerprint = self.request_hash(data)
 
-        lock_name = (
-            "order:lock:"
-            + hashlib.sha256(
-                idempotency_key.encode()
-            ).hexdigest()
+        # 暂时关闭 Redis 分布式锁
+        # lock_name = (
+        #     "order:lock:"
+        #     + hashlib.sha256(
+        #         idempotency_key.encode()
+        #     ).hexdigest()
+        # )
+
+        # lock = RedisLock(
+        #     self.redis,
+        #     key=lock_name,
+        #     ttl=30,
+        # )
+
+        # acquired = await lock.acquire()
+
+        # if not acquired:
+        existing = await self._find_existing(
+            idempotency_key,
+            fingerprint,
         )
-
-        lock = RedisLock(
-            self.redis,
-            key=lock_name,
-            ttl=30,
-        )
-
-        acquired = await lock.acquire()
-
-        if not acquired:
-            existing = await self._find_existing(
-                idempotency_key,
-                fingerprint,
-            )
-            if existing is not None:
-                return existing, False
+        if existing is not None:
+            return existing, False
             
-            raise HTTPException(
-                status_code=409,
-                detail="Order is being processed. Retry later.",
-                headers={"Retry-After": "1"},
-            )
+        raise HTTPException(
+            status_code=409,
+            detail="Order is being processed. Retry later.",
+            headers={"Retry-After": "1"},
+        )
+
+        # try:
+        # existing = await self._find_existing(
+        #     idempotency_key,
+        #     fingerprint,
+        # )
+        if existing is not None:
+            return existing, False
+
+        order = Order(
+            order_no=uuid.uuid4().hex,
+            user_id=data.user_id,
+            amount=data.amount,
+            status="PENDING",
+            # idempotency_key=idempotency_key,
+            request_hash=fingerprint,
+        )
 
         try:
+            order = await self.repository.create(order)
+            await self.session.commit()
+            
+        except IntegrityError:
+            await self.session.rollback()
             existing = await self._find_existing(
                 idempotency_key,
                 fingerprint,
             )
             if existing is not None:
                 return existing, False
+            raise
+        except Exception:
+            await self.session.rollback()
+            raise
 
-            order = Order(
-                order_no=uuid.uuid4().hex,
-                user_id=data.user_id,
-                amount=data.amount,
-                status="PENDING",
-                idempotency_key=idempotency_key,
-                request_hash=fingerprint,
-            )
+        await self.session.refresh(order)
 
-            try:
-                await self.repository.create(order)
-                await self.session.commit()
-            
-            except IntegrityError:
-                await self.session.rollback()
-                existing = await self._find_existing(
-                    idempotency_key,
-                    fingerprint,
-                )
-                if existing is not None:
-                    return existing, False
-                raise
-            except Exception:
-                await self.session.rollback()
-                raise
-            await self.session.refresh(order)
-            return order, True
+        await rabbitmq_publisher.publish_order_created(
+            order_id=order.id,
+            order_no=order.order_no,
+            user_id=order.user_id,
+        )
+
+        return order, True
         
-        finally:
-            await lock.release()
+        # 暂时关闭 Redis 锁释放
+        # finally:
+        #     await lock.release()
         
     async def get_order(
         self,
@@ -171,7 +186,9 @@ class OrderService:
     ) -> Order | None:
         order = await self.repository.get_by_id(order_id)
         if order is None:
-            return None
+            raise OrderNotFoundError(
+                f"order {order_id} not found"
+            )
 
         allowed_statuses = STATUS_TRANSITIONS.get(
             order.status,
@@ -179,19 +196,29 @@ class OrderService:
         )
 
         if data.status not in allowed_statuses:
-            raise ValueError(
-                f"invalid status transition:"
+            raise InvalidOrderStatusTransitionError(
+                f"invalid status transition: "
                 f"{order.status} -> {data.status}"
             )
 
         try:
-            order = await self.repository.update_status(
+            success = await self.repository.update_status_optimistic(
                 order=order,
                 status=data.status,
             )
+            if not success:
+
+                raise OptimisticLockError(
+                    f"order {order_id} was modified"
+                    "by another request"
+                )
+            
             await self.session.commit()
-            return order
+
+            return await self.repository.get_by_id(order_id)
         except Exception:
             await self.session.rollback()
             raise
+
+        # domain exception -> service -> fastapi execption handler -> 409 conflict
     

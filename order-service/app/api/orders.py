@@ -11,6 +11,12 @@ from app.schemas.order import (
 )
 from app.services.order_service import OrderService
 
+from app.core.exceptions import (
+    InvalidOrderStatusTransitionError,
+    OptimisticLockError,
+    OrderNotFoundError,
+)
+
 router = APIRouter(
     prefix="/orders",
     tags=["orders"],
@@ -27,9 +33,19 @@ async def create_order(
         AsyncSession,
         Depends(get_db),
     ],
+    idempotency_key: Annotated[
+        str,
+        Header(alias="Idempotency-Key"),
+    ],
 ):
     service = OrderService(session)
-    return await service.create_order(data)
+    order, created = await service.create_order(
+        data,
+        idempotency_key,
+    )
+    if not created:
+        response.status_code = 200
+    return order
 
 @router.get(
     "/{order_id}",
@@ -65,15 +81,26 @@ async def update_order_status(
 ):
     service = OrderService(session)
 
-    order = await service.update_order_status(
-        order_id=order_id,
-        data=data,
-    )
+    try:
+        return await service.update_order_status(
+            order_id=order_id,
+            data=data,
+        )
 
-    if order is None:
+    except OrderNotFoundError as exc:
         raise HTTPException(
             status_code=404,
-            detail="Order not found",
+            detail=str(exc),
         )
     
-    return order
+    except InvalidOrderStatusTransitionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
+
+    except OptimisticLockError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
