@@ -22,7 +22,7 @@ async def publish_batch() -> int:
 
                     await repository.mark_published(event.id)
 
-                    print("published:", event:event_id, event.event_type)
+                    print("published:", event.event_id, event.event_type)
                 
                 except Exception as exc:
                     await repository.mark_failed(event, str(exc))
