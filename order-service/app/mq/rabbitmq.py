@@ -30,6 +30,39 @@ class RabbitMQPublisher:
             durable=True,
         )
 
+    async def publish_event(
+        self,
+        event_id: str,
+        event_type: str,
+        payload: dict,
+    ) -> None:
+        if self.channel is None:
+            raise RuntimeError("RabbitMQ is not connected")
+
+        body = {
+            "event_id": event_id,
+            "event_type": event_type,
+            "payload": payload,
+        }
+
+        message = aio_pika.Message(
+            body=json.dumps(body).encode("utf-8"),
+            content_type="application/json",
+            delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+            message_id=event_id,
+            type=event_type,
+        )
+
+        await self.channel.default_exchange.publish(
+            message,
+            routing_key=ORDER_QUEUE,
+            mandatory=True,
+        )
+
+    async def close(self) -> None:
+        if self.connection is not None:
+            await self.connection.close()
+
     async def publish_order_created(
         self,
         order_id: int,

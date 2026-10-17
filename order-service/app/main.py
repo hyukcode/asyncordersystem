@@ -15,26 +15,24 @@ from app.mq.rabbitmq import rabbitmq_publisher
 # uvicorn shutdown
 # RabbitMQ close
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     await rabbitmq_publisher.connect()
 
-    await rabbitmq_publisher.connect()
-    yield
-    await rabbitmq_publisher.close()
+#     redis = create_redis()
+#     await redis.ping()
 
-    redis = create_redis()
-    await redis.ping()
-
-    app.state.redis = redis
-    try:
-        yield
-    finally:
-        await redis.aclose()
+#     app.state.redis = redis
+#     try:
+#         yield
+#     finally:
+#         await redis.aclose()
+#         await rabbitmq_publisher.close()
 
 app = FastAPI(
     title="Async Order System",
     version="1.0.0",
-    lifespan=lifespan,
+    # lifespan=lifespan,
 )
 
 # 创建了一个应用对象
@@ -50,3 +48,5 @@ async def health():
 
 
 # RabbitMQ Connection 和 FastAPI Application 生命周期绑定
+
+# 启动 -> RabbitMQ connect -> Redis connect -> yield 应用运行 -> Redis close -> RabbitMQ close

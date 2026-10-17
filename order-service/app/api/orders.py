@@ -1,6 +1,12 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import (
+    APIRouter, 
+    Depends, 
+    HTTPException,
+    Header,
+    Response,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -29,6 +35,7 @@ router = APIRouter(
 )
 async def create_order(
     data: OrderCreate,
+    response: Response,
     session: Annotated[
         AsyncSession,
         Depends(get_db),

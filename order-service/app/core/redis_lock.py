@@ -3,7 +3,7 @@ from uuid import uuid4
 from redis.asyncio import Redis
 
 RELEASE_LOCK_SCRIPT = """
-if redis.call("get, KEYS[1] == ARGV[1] then
+if redis.call("get", KEYS[1] == ARGV[1] then
     return redis.call("del", KEYS[1])
 else 
     return 0

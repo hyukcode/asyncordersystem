@@ -11,6 +11,11 @@ from app.core.config import settings
 # Base 保存 SQLAlchemy Metadata
 from app.models.base import Base
 from app.models.order import Order
+# import 会完成 OutboxEvent class -> 注册进 Base.metadata -> Alembic autogenerate -> 知道存在 outbox_events
+from app.models.outbox_event import OutboxEvent
+
+from app.models.processed_events import ProcessedEvent
+# alembic current 和 alembic heads 必须保持一致
 
 
 config = context.config

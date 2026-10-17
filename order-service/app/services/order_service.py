@@ -18,9 +18,12 @@ from app.core.exceptions import (
     OptimisticLockError,
     OrderNotFoundError,
 )
-from app.mq.rabbitmq import rabbitmq_publisher
+# from app.mq.rabbitmq import rabbitmq_publisher
 
 from redis.asyncio import Redis
+
+from app.repositories.outbox_repository import OutboxRepository
+from app.models.outbox_event import OutboxEvent
 
 # 状态机规则
 STATUS_TRANSITIONS = {
@@ -44,7 +47,9 @@ class OrderService:
     ):
         self.session = session
         self.redis = redis
+        # OrderRepository OutboxRepository 共享同一个session
         self.repository = OrderRepository(session)
+        self.outbox_repository = OutboxRepository(session)
 
     @staticmethod
     def request_hash(data: OrderCreate) -> str:
@@ -84,8 +89,9 @@ class OrderService:
     async def create_order(
         self,
         data: OrderCreate,
+        # idempotency_key 请求携带，数据库 unique constraint
         idempotency_key: str,
-    ) -> Order:
+    ) -> tuple[Order, bool]:
 
         # 暂时关闭 Redis 依赖
         # if self.redis is None:
@@ -114,14 +120,15 @@ class OrderService:
             idempotency_key,
             fingerprint,
         )
+
         if existing is not None:
             return existing, False
             
-        raise HTTPException(
-            status_code=409,
-            detail="Order is being processed. Retry later.",
-            headers={"Retry-After": "1"},
-        )
+        # raise HTTPException(
+        #     status_code=409,
+        #     detail="Order is being processed. Retry later.",
+        #     headers={"Retry-After": "1"},
+        # )
 
         # try:
         # existing = await self._find_existing(
@@ -136,34 +143,55 @@ class OrderService:
             user_id=data.user_id,
             amount=data.amount,
             status="PENDING",
-            # idempotency_key=idempotency_key,
+            idempotency_key=idempotency_key,
             request_hash=fingerprint,
         )
 
         try:
             order = await self.repository.create(order)
+
+            event = OutboxEvent(
+                event_id=uuid.uuid4().hex,
+                aggregate_type="order",
+                aggregate_id=str(order.id),
+                event_type="order.created",
+                payload={
+                    "order_id": order.id,
+                    "order_no": order.order_no,
+                    "user_id": order.user_id,
+                    "amount": str(order.amount),
+                    "status": order.status,
+                },
+                status="PENDING",
+            )
+
+            await self.outbox_repository.create(event)
+
             await self.session.commit()
             
         except IntegrityError:
             await self.session.rollback()
+
             existing = await self._find_existing(
                 idempotency_key,
                 fingerprint,
             )
+
             if existing is not None:
                 return existing, False
             raise
+
         except Exception:
             await self.session.rollback()
             raise
 
         await self.session.refresh(order)
 
-        await rabbitmq_publisher.publish_order_created(
-            order_id=order.id,
-            order_no=order.order_no,
-            user_id=order.user_id,
-        )
+        # await rabbitmq_publisher.publish_order_created(
+        #     order_id=order.id,
+        #     order_no=order.order_no,
+        #     user_id=order.user_id,
+        # )
 
         return order, True
         

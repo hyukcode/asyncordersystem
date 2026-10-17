@@ -34,3 +34,4 @@ def downgrade() -> None:
     op.create_index(op.f('order_no'), 'orders', ['order_no'], unique=True)
     op.drop_column('orders', 'version')
     # ### end Alembic commands ###
+
