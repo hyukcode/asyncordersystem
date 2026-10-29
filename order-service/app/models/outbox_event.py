@@ -65,7 +65,7 @@ class OutboxEvent(Base):
     )
 
     # 真正发送给 RabbitMQ 的消息内容
-    payload: Mapped[str] = mapped_column(
+    payload: Mapped[dict[str, Any]] = mapped_column(
         JSON,
         nullable=False,
     )

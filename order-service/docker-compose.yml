@@ -1,0 +1,71 @@
+services:
+  api:
+    build: .
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://orderapp:orderpass@rabbitmq:5672/
+    depends_on:
+      redis:
+        condition: service_healthy
+  
+  outbox-publisher:
+    build: .
+    command: python -m worker.outbox_publisher
+    env_file:
+      - .env
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://orderapp:orderpass@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+  
+  outbox-consumer:
+    build: .
+    command: python -m worker.outbox_consumer
+    env_file:
+      - .env
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://orderapp:orderpass@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: orderapp
+      RABBITMQ_DEFAULT_PASS: orderpass
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+
+  volumes:
+    rabbitmq_data:

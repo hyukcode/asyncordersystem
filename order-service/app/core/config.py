@@ -7,6 +7,8 @@ class Settings(BaseSettings):
 
     rabbitmq_url: str = "amqp://guest:guest@127.0.0.1:5672/"
 
+    redis_url: str = "redis://127.0.0.1:6379/0"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -6,6 +6,14 @@ from app.core.config import settings
 
 ORDER_QUEUE = "order.created"
 
+# 暂存失败消息的队列
+ORDER_RETRY_QUEUE = "order.created.retry"
+
+# 死信队列
+ORDER_DLQ = "order.created.dlq"
+
+RETRY_DELAY_MS = 5000
+
 class RabbitMQPublisher:
 
     def __init__(self):
@@ -63,38 +71,5 @@ class RabbitMQPublisher:
         if self.connection is not None:
             await self.connection.close()
 
-    async def publish_order_created(
-        self,
-        order_id: int,
-        order_no: str,
-        user_id: int,
-    ) -> None:
-        if self.channel is None:
-            raise RuntimeError(
-                "RabbitMQ is not connected"
-            )
-        
-        payload = {
-            "event": "order.created",
-            "order_id": order_id,
-            "order_no": order_no,
-            "user_id": user_id,
-        }
-
-        # Queue durable + Message persistent 
-        message = aio_pika.Message(
-            body=json.dumps(payload).encode(),
-            content_type="application/json",
-            delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-        )
-
-        await self.channel.default_exchange.publish(
-            message,
-            routing_key=ORDER_QUEUE,
-        )
-
-    async def close(self) -> None:
-        if self.connection is not None:
-            await self.connection.close()
 
 rabbitmq_publisher = RabbitMQPublisher()

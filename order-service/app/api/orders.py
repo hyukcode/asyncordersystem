@@ -22,6 +22,9 @@ from app.core.exceptions import (
     OptimisticLockError,
     OrderNotFoundError,
 )
+from app.core.redis_client import get_redis
+from redis.asyncio import Redis
+
 
 router = APIRouter(
     prefix="/orders",
@@ -44,8 +47,15 @@ async def create_order(
         str,
         Header(alias="Idempotency-Key"),
     ],
+    redis: Annotated[
+        Redis,
+        Depends(get_redis),
+    ]
 ):
-    service = OrderService(session)
+    service = OrderService(
+        session=session,
+        redis=redis,
+    )
     order, created = await service.create_order(
         data,
         idempotency_key,
@@ -64,8 +74,15 @@ async def get_order(
         AsyncSession,
         Depends(get_db),
     ],
+    redis: Annotated[
+        Redis,
+        Depends(get_redis),
+    ]
 ): 
-    service = OrderService(session)
+    service = OrderService(
+        session=session,
+        redis=redis,
+    )
     order = await service.get_order(order_id)
     if order is None:
         raise HTTPException(
@@ -85,8 +102,15 @@ async def update_order_status(
         AsyncSession,
         Depends(get_db),
     ],
+    redis: Annotated[
+        Redis,
+        Depends(get_redis),
+    ]
 ):
-    service = OrderService(session)
+    service = OrderService(
+        session=session,
+        redis=redis,
+    )
 
     try:
         return await service.update_order_status(

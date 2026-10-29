@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.order import Order
-from app.core.redis_lock import RedisLock
+# from app.core.redis_lock import RedisLock
 from app.repositories.order_repository import OrderRepository
 from app.schemas.order import OrderCreate, OrderStatusUpdate
 from app.core.exceptions import (
@@ -24,6 +24,7 @@ from redis.asyncio import Redis
 
 from app.repositories.outbox_repository import OutboxRepository
 from app.models.outbox_event import OutboxEvent
+from app.cache.order_cache import OrderCache
 
 # 状态机规则
 STATUS_TRANSITIONS = {
@@ -43,13 +44,14 @@ class OrderService:
     def __init__(
         self, 
         session: AsyncSession,
-        redis: Redis | None = None,
+        redis: Redis,
     ):
         self.session = session
         self.redis = redis
         # OrderRepository OutboxRepository 共享同一个session
         self.repository = OrderRepository(session)
         self.outbox_repository = OutboxRepository(session)
+        self.cache = OrderCache(redis)
 
     @staticmethod
     def request_hash(data: OrderCreate) -> str:
@@ -135,8 +137,6 @@ class OrderService:
         #     idempotency_key,
         #     fingerprint,
         # )
-        if existing is not None:
-            return existing, False
 
         order = Order(
             order_no=uuid.uuid4().hex,
@@ -199,13 +199,48 @@ class OrderService:
         # finally:
         #     await lock.release()
         
+
+    # GET /orders/10
+    #    ↓
+    # Redis GET order:10
+    #     ↓
+    # Cache Miss
+    #     ↓
+    # SELECT MySQL
+    #     ↓
+    # 找到 Order
+    #     ↓
+    # SET order:10 EX 60
+    #     ↓
+    # 返回
+
+    # GET /orders/10
+    #    ↓
+    # Redis GET order:10
+    #     ↓
+    #     Cache Hit
+    #     ↓
+    # 直接返回
+
     async def get_order(
         self,
         order_id: int,
     ) -> Order | None:
-        return await self.repository.get_by_id(
+        cached = await self.cache.get(order_id)
+
+        if cached is not None:
+            return cached
+
+        order =  await self.repository.get_by_id(
             order_id
         )
+
+        if order is None:
+            return None
+
+        await self.cache.set(order)
+
+        return order
 
     async def update_order_status(
         self,
@@ -240,8 +275,12 @@ class OrderService:
                     f"order {order_id} was modified"
                     "by another request"
                 )
+
+            # 先更新 DB -> commit -> 删缓存
             
             await self.session.commit()
+
+            await self.cache.delete(order_id)
 
             return await self.repository.get_by_id(order_id)
         except Exception:
