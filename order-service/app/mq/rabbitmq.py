@@ -29,7 +29,8 @@ class RabbitMQPublisher:
         )
         # Broker 告诉 Publisher 消息已接管
         self.channel = await self.connection.channel(
-            publisher_confirms=True
+            publisher_confirms=True,
+            on_return_raises=True,
         )
         # durable 为 true  rabbitmq重启 -> Queue定义仍然存在、
         # durable queue 不等于 消息一定持久化

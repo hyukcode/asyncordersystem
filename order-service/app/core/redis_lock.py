@@ -1,10 +1,13 @@
+
 from uuid import uuid4
 
 from redis.asyncio import Redis
 
+# 从 Redis 读取锁的 Token，判断 Token 是否属于当前请求， 只有匹配才删除锁，不匹配就返回0，避免误删别人的锁
+
 RELEASE_LOCK_SCRIPT = """
-if redis.call("get", KEYS[1] == ARGV[1] then
-    return redis.call("del", KEYS[1])
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+    return redis.call("DEL", KEYS[1])
 else 
     return 0
 end

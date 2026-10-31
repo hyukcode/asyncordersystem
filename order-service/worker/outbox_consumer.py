@@ -23,7 +23,7 @@ async def republish_message(
     channel: aio_pika.Channel,
     message: aio_pika.IncomingMessage,
     routing_key: str,
-    retry_count: str,
+    retry_count: int,
 ) -> None:
     headers = dict(message.headers or {})
 
@@ -88,13 +88,25 @@ async def handle_message(
 
         if retry_count >= MAX_RETRIES:
 
-            republish_message(
-                channel=channel,
-                message=message,
-                routing_key=ORDER_DLQ,
-                retry_count=retry_count,
-            )
+            try:
+                # 先把消息发布到 DLQ 
 
+                await republish_message(
+                    channel=channel,
+                    message=message,
+                    routing_key=ORDER_DLQ,
+                    retry_count=retry_count,
+                )
+            except Exception as dlq_exc:
+                print(
+                    "DLQ publish failed:",
+                    message.message_id,
+                    str(dlq_exc),
+                )
+                # 转发失败，原消息不能ACK
+                await message.nack(requeue=True)
+                return
+            # 转发成功，再ACK
             await message.ack()
 
             print(
@@ -129,7 +141,15 @@ async def main() -> None:
 
     redis = create_redis()
 
+    # 专门负责接收 RabbitMQ 消息
     channel = await connection.channel()
+
+    # 专门负责向 Retry Queue / DLQ 发布消息
+    publish_channel = await connection.channel(
+        publisher_confirms=True,
+        on_return_raises=True,
+    )
+    
 
     await channel.set_qos(prefetch_count=10)
 
@@ -160,7 +180,7 @@ async def main() -> None:
     ) -> None:
         await handle_message(
             message=message,
-            channel=channel,
+            channel=publish_channel,
             redis=redis,
         )
 
